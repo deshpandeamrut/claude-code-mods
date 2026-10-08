@@ -22,6 +22,7 @@ export const register: Register = (on, options) => {
   const override: CacheTtl | null =
     options.cacheTtl === '5m' || options.cacheTtl === '1h' ? options.cacheTtl : null
   const warnMinutes: number = typeof options.warnMinutes === 'number' ? options.warnMinutes : 10
+  const minTokens: number   = typeof options.minTokens   === 'number' ? options.minTokens   : 50_000
 
   on('session.start', async ($, e, next) => {
     const result = await next(e)
@@ -51,7 +52,12 @@ export const register: Register = (on, options) => {
     if (!e.agentId && result.stopReason !== null) {
       const now = await $.clock.now()
       await update($, lastRequestAt, () => now)
-      await restartTimer($, now, now, await ttlMsFor($, override), warnMinutes)
+      const { context } = await $.session.usage()
+      if ((context?.tokens ?? 0) >= minTokens) {
+        await restartTimer($, now, now, await ttlMsFor($, override), warnMinutes)
+      } else {
+        stop() // session too small — cancel any running timer
+      }
     }
     return result
   })
@@ -69,6 +75,8 @@ export const register: Register = (on, options) => {
     const rest = await next(e)
     const since = await read($, lastRequestAt)
     if (since === null) return rest
+    const { context } = await $.session.usage()
+    if ((context?.tokens ?? 0) < minTokens) return rest
 
     const now    = await $.clock.now()
     const ttlMs  = await ttlMsFor($, override)

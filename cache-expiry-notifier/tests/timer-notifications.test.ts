@@ -5,7 +5,7 @@ import type { Engine } from 'claude-code/testing'
 async function start($: Engine, on: On) {
   const clock = mock.clock(on, { now: 1_000_000 })
   on('session.start',  (_$, e) => ({ sessionId: 's', cwd: (e as any).cwd }) as any)
-  on('session.usage',  () => ({ value: { startedAt: 0, rateLimits: [], context: { tokens: 5_000, window: 200_000, percent: 3 } } }) as any)
+  on('session.usage',  () => ({ value: { startedAt: 0, rateLimits: [], context: { tokens: 60_000, window: 200_000, percent: 3 } } }) as any)
   on('turn.step',      async function* (_$, e) { return { turnId: (e as any).turnId, index: (e as any).index, answer: '', toolUses: [], stopReason: 'end_turn', usage: null } as any })
   on('turn.complete',  () => ({ text: '' }) as any)
   on('session.end',    (_$, e) => ({ sessionId: (e as any).sessionId }) as any)
@@ -56,7 +56,7 @@ describe('cache-expiry-notifier: turn tracking', () => {
     // Override turn.step to return stopReason: null
     const clock = mock.clock(on, { now: 1_000_000 })
     on('session.start',  (_$, e) => ({ sessionId: 's', cwd: (e as any).cwd }) as any)
-    on('session.usage',  () => ({ value: { startedAt: 0, rateLimits: [], context: { tokens: 5_000, window: 200_000, percent: 3 } } }) as any)
+    on('session.usage',  () => ({ value: { startedAt: 0, rateLimits: [], context: { tokens: 60_000, window: 200_000, percent: 3 } } }) as any)
     on('turn.step',      async function* (_$, e) { return { turnId: (e as any).turnId, index: (e as any).index, answer: '', toolUses: [], stopReason: null, usage: null } as any })
     on('turn.complete',  () => ({ text: '' }) as any)
     on('session.end',    (_$, e) => ({ sessionId: (e as any).sessionId }) as any)

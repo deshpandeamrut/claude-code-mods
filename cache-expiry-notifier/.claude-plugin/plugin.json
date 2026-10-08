@@ -21,6 +21,13 @@
       "description": "auto (default) detects the TTL from Claude's responses. Set 5m or 1h to override.",
       "options": ["auto", "5m", "1h"],
       "default": "auto"
+    },
+    "minTokens": {
+      "type": "number",
+      "title": "Minimum tokens to warn",
+      "description": "Only fire the alert when the session holds at least this many tokens. Below this, re-caching is cheap enough to ignore.",
+      "default": 50000,
+      "min": 0
     }
   }
 }

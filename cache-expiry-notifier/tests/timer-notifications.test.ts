@@ -25,7 +25,60 @@ async function start($: Engine, on: On) {
   return { clock, step }
 }
 
+describe('cache-expiry-notifier: hot-reload re-arm', () => {
+  test('session.start re-arms the countdown when lastRequestAt is already set', { options: { warnMinutes: 60, cacheTtl: '5m' } }, async ($, on) => {
+    // Simulate a hot reload: step() sets lastRequestAt, then session.start fires again.
+    // The countdown band must still be visible after the second session.start.
+    on('ui.toast',    () => ({ value: undefined }) as any)
+    on('process.run', () => ({ value: { exitCode: 0, stdout: '', stderr: '' } }) as any)
+    const BAND = { plugin: 'cache-expiry-notifier', component: 'AbovePrompt', props: { hasSurvey: false, isWorking: false, maxRows: 10, bodyColumns: 120 } }
+    const { step } = await start($, on)
+
+    await step()  // sets lastRequestAt; 5m TTL with 60m warn → warnAt = now - 55m → immediate warn
+
+    // Simulate hot reload: session.start fires again while lastRequestAt is in the atom
+    await $.session.start({ surface: 'terminal', isInteractive: true, cwd: '/work' } as any)
+
+    const ui = await $.ui.mount({ surface: 'terminal', ...BAND } as any)
+    // Countdown band must still appear — session.start re-armed it from the atom
+    expect(await ui.find({ type: 'Text', text: /Cache expires in|Cache cold/ })).toBeDefined()
+    await ui.unmount()
+  })
+})
+
 describe('cache-expiry-notifier: turn tracking', () => {
+  test('turn.step with stopReason=null does not advance lastRequestAt', { options: { warnMinutes: 5, cacheTtl: '1h' } }, async ($, on) => {
+    // A streaming turn that is interrupted (stopReason=null) must not update the cache clock.
+    const toasts: string[] = []
+    on('ui.toast',    (_$, e) => { toasts.push((e as any).text); return { value: undefined } as any })
+    on('process.run', () => ({ value: { exitCode: 0, stdout: '', stderr: '' } }) as any)
+
+    // Override turn.step to return stopReason: null
+    const clock = mock.clock(on, { now: 1_000_000 })
+    on('session.start',  (_$, e) => ({ sessionId: 's', cwd: (e as any).cwd }) as any)
+    on('session.usage',  () => ({ value: { startedAt: 0, rateLimits: [], context: { tokens: 5_000, window: 200_000, percent: 3 } } }) as any)
+    on('turn.step',      async function* (_$, e) { return { turnId: (e as any).turnId, index: (e as any).index, answer: '', toolUses: [], stopReason: null, usage: null } as any })
+    on('turn.complete',  () => ({ text: '' }) as any)
+    on('session.end',    (_$, e) => ({ sessionId: (e as any).sessionId }) as any)
+    on('fs.stat',        () => ({ deny: 'no such file' }) as any)
+    on('ui.render',      ($, e) => { const { Text } = ($ as any).ui.resolve(e); return Text({ children: 'engine' }) as any })
+    mock.env(on, { HOME: '/home/me' })
+    on('session.root',   () => ({ value: '/work/app' }) as any)
+    on('session.id',     () => ({ value: 'abc' }) as any)
+    mock.store(on, {})
+    await $.session.start({ surface: 'terminal', isInteractive: true, cwd: '/work' } as any)
+
+    // Fire a turn with stopReason: null (interrupted/streaming incomplete)
+    const stream = $.turn.step({ turnId: 't', index: 0, model: 'm', messageCount: 1 } as any)
+    for await (const _ of stream) { /* drain */ }
+    await stream.result
+
+    // 1h TTL, 5m warn → warnAt = now + 55m; if lastRequestAt was set, toast would fire at 55m
+    // If lastRequestAt was NOT set (correct), no toast fires even after advancing 55m
+    await clock.advance(55 * 60_000 + 100)
+    expect(toasts).toHaveLength(0)  // no toast = lastRequestAt was never set
+  })
+
   test('subagent turn.step does not reset the countdown', { options: { warnMinutes: 5, cacheTtl: '5m' } }, async ($, on) => {
     const toasts: string[] = []
     on('ui.toast', (_$, e) => { toasts.push((e as any).text); return { value: undefined } as any })

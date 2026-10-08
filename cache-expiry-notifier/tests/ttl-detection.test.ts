@@ -154,6 +154,45 @@ describe('cache-expiry-notifier: TTL detection', () => {
     await ui.unmount()
   })
 
+  test('turn.complete from a subagent does not update detectedTtl', { options: { warnMinutes: 60, cacheTtl: 'auto' } }, async ($, on) => {
+    // A turn.complete with agentId set must not scan the transcript or change detectedTtl.
+    // Set up: main-thread step sets lastRequestAt; transcript has a 1h response;
+    // subagent turn.complete fires — detectedTtl must stay null (5m fallback).
+    let content = ''
+    const file = '/home/me/.claude/projects/-work-my-app/abc.jsonl'
+    mock.store(on, {})
+    mock.clock(on, { now: 1_000_000 })
+    on('session.start',  (_$, e) => ({ sessionId: 's', cwd: (e as any).cwd }) as any)
+    on('session.usage',  () => ({ value: { startedAt: 0, rateLimits: [], context: { tokens: 5_000, window: 200_000, percent: 3 } } }) as any)
+    on('turn.step',      async function* (_$, e) { return { turnId: (e as any).turnId, index: (e as any).index, answer: '', toolUses: [], stopReason: 'end_turn', usage: null } as any })
+    on('turn.complete',  () => ({ text: '' }) as any)
+    on('session.end',    (_$, e) => ({ sessionId: (e as any).sessionId }) as any)
+    on('fs.stat',        (_$, e) => (e as any).path !== file ? { deny: 'no such file' } as any : { value: { kind: 'file', size: content.length, mtimeMs: 0, isLink: false } } as any)
+    on('fs.read',        () => ({ value: content }) as any)
+    on('process.run',    (_$, e) => { const bytes = Number((e as any).argv[2]); return { value: { exitCode: 0, stdout: content.slice(-bytes), stderr: '' } } as any })
+    on('ui.toast',       () => ({ value: undefined }) as any)
+    on('ui.render',      ($, e) => { const { Text } = ($ as any).ui.resolve(e); return Text({ children: 'engine' }) as any })
+    mock.env(on, { HOME: '/home/me' })
+    on('session.root',   () => ({ value: '/work/my app' }) as any)
+    on('session.id',     () => ({ value: 'abc' }) as any)
+    await $.session.start({ surface: 'terminal', isInteractive: true, cwd: '/work' } as any)
+
+    // Main-thread step: sets lastRequestAt
+    const stream = $.turn.step({ turnId: 't', index: 0, model: 'm', messageCount: 1 } as any)
+    for await (const _ of stream) { /* drain */ }
+    await stream.result
+
+    // Transcript has a 1h write — but we fire a SUBAGENT turn.complete
+    content += response(0, 1355) + '\n'
+    await $.turn.complete({ reason: 'answer', answer: 'ok', durationMs: 1, agentId: 'agent-99' } as any)
+
+    // detectedTtl never set → falls back to 5m → countdown shows ~5:00
+    const ui = await $.ui.mount({ surface: 'terminal', ...BAND } as any)
+    expect(await ui.find({ type: 'Text', text: /5:0/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /60:00/ })).toBeUndefined()
+    await ui.unmount()
+  })
+
   test('explicit cacheTtl=5m overrides 1h detection', { options: { warnMinutes: 60, cacheTtl: '5m' } }, async ($, on) => {
     const { turn } = await start($, on)
     await turn(response(0, 1355))  // would show 60:00 if auto

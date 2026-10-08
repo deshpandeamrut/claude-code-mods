@@ -60,7 +60,7 @@ export const register: Register = (on, options) => {
     const result = await next(e)
     if (!e.agentId && override === null) {
       const found = ttlFromTranscript(await readTail($))
-      if (found !== null) await detectTtl($, found, override, warnMinutes)
+      if (found !== null) await detectTtl($, found, warnMinutes)
     }
     return result
   })
@@ -116,13 +116,14 @@ async function ttlMsFor($: EngineInterface, override: CacheTtl | null): Promise<
   return TTL_MS[override ?? (await read($, detectedTtl)) ?? '5m']
 }
 
-async function detectTtl($: EngineInterface, ttl: CacheTtl, override: CacheTtl | null, warnMinutes: number) {
+async function detectTtl($: EngineInterface, ttl: CacheTtl, warnMinutes: number) {
+  // Only called when override === null (guarded at call site), so TTL_MS[ttl] is always correct.
   if ((await read($, detectedTtl)) === ttl) return
   await update($, detectedTtl, () => ttl)
   await $.store.set('detectedTtl', ttl).catch(() => {})
   const now = await $.clock.now()
   const since = await read($, lastRequestAt)
-  if (since !== null) await restartTimer($, since, now, TTL_MS[override ?? ttl], warnMinutes)
+  if (since !== null) await restartTimer($, since, now, TTL_MS[ttl], warnMinutes)
 }
 
 async function restartTimer($: EngineInterface, since: number, now: number, ttlMs: number, warnMinutes: number) {

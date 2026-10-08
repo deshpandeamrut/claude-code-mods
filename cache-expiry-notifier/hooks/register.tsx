@@ -143,6 +143,7 @@ async function restartTimer($: EngineInterface, since: number, now: number, ttlM
 }
 
 async function onWarn($: EngineInterface, since: number, now: number, ttlMs: number, warnMinutes: number) {
+  $.ui.invalidate('ui.render') // immediately show the warning band before anything else
   const lastNotified = await read($, notifiedAt)
   if (lastNotified !== null && lastNotified >= since) {
     arm($, since, now, ttlMs)

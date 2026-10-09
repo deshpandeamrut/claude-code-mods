@@ -8,6 +8,7 @@ A Claude Code mod that alerts you **X minutes before your prompt cache expires**
 - Shows a red **`❄ Cache cold — next turn re-caches`** band after expiry.
 - Fires an **in-app toast** and a **macOS system notification** the moment you enter the warning window.
 - Detects whether your instance uses 5-minute or 1-hour prompt caching automatically (no manual setup needed once you're on `ENABLE_PROMPT_CACHING_1H`).
+- **`/keepwarm`** — opt-in keep-warm mode that automatically sends `·` before the cache expires, resetting the clock without you having to do anything.
 
 ## Installation
 
@@ -34,13 +35,32 @@ Each developer can configure independently via `/config` inside Claude Code:
 |---------|---------|-------------|
 | `cache-expiry-notifier.warnMinutes` | `10` | Minutes before expiry to fire the alert (min 1) |
 | `cache-expiry-notifier.cacheTtl` | `auto` | Override TTL detection: `auto`, `5m`, or `1h` |
+| `cache-expiry-notifier.minTokens` | `50000` | Only warn when the session holds at least this many tokens |
 
 **Examples:**
 
 ```
 /config cache-expiry-notifier.warnMinutes=5
 /config cache-expiry-notifier.cacheTtl=1h
+/config cache-expiry-notifier.minTokens=10000
 ```
+
+## Keep-warm mode
+
+Run `/keepwarm` inside any Claude Code session to toggle automatic cache keep-warm on or off. When enabled:
+
+- The mod sends `·` (a single middle dot) before the cache expires, resetting the clock
+- The status bar shows `🔥 keepwarm` while active
+- The normal warning notification still fires so you know it happened
+- If you're in the middle of a turn, the `·` is queued and sent when the turn finishes
+- **Session-specific** — resets to off on `/clear` or when you start a new session
+
+```
+/keepwarm        # enable for this session
+/keepwarm        # run again to disable
+```
+
+> **Keep-warm is opt-in for a reason.** It's designed for when you're actively working and step away briefly. Don't use it to keep a session alive overnight or through a long break — close the laptop and let the cache expire. Re-caching tomorrow is cheap. Your evenings are not.
 
 ## How it works
 
@@ -65,4 +85,4 @@ Run the unit tests:
 CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1 claude plugin test /path/to/cache-expiry-notifier
 ```
 
-Expected output: 32 tests, 0 failures across `ttl-detection`, `timer-notifications`, and `above-prompt` suites.
+Expected output: 40 tests, 0 failures across `ttl-detection`, `timer-notifications`, `above-prompt`, and `keepwarm` suites.

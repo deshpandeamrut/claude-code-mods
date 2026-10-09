@@ -10,9 +10,10 @@ const SLOW_STEP_MS = 15_000
 const SLOWER_ABOVE_MS = 10 * 60_000
 const SLOWER_STEP_MS = 30_000
 
-const lastRequestAt = atom({ plugin: 'cache-expiry-notifier', key: 'lastRequestAt' } as const, null as number | null)
-const detectedTtl   = atom({ plugin: 'cache-expiry-notifier', key: 'detectedTtl'   } as const, null as CacheTtl | null)
-const notifiedAt    = atom({ plugin: 'cache-expiry-notifier', key: 'notifiedAt'    } as const, null as number | null)
+const lastRequestAt  = atom({ plugin: 'cache-expiry-notifier', key: 'lastRequestAt'  } as const, null as number | null)
+const detectedTtl    = atom({ plugin: 'cache-expiry-notifier', key: 'detectedTtl'    } as const, null as CacheTtl | null)
+const notifiedAt     = atom({ plugin: 'cache-expiry-notifier', key: 'notifiedAt'     } as const, null as number | null)
+const keepWarmEnabled = atom({ plugin: 'cache-expiry-notifier', key: 'keepWarmEnabled' } as const, false)
 
 // Module-level timer state — lost on hot reload, re-armed in session.start
 let tick: Timer | undefined
@@ -35,16 +36,33 @@ export const register: Register = (on, options) => {
       const now = await $.clock.now()
       await restartTimer($, since, now, await ttlMsFor($, override), warnMinutes)
     }
+    if (await read($, keepWarmEnabled)) $.ui.status('🔥 keepwarm')
+    await $.command.register({
+      name: 'keepwarm',
+      description: 'Toggle automatic cache keep-warm for this session. When on, sends · before expiry to reset the clock.',
+    })
     return result
   })
 
   on('session.end', async ($, e, next) => {
     if (e.reason === 'clear' || e.reason === 'resume') {
       stop()
-      await update($, lastRequestAt, () => null)
-      await update($, notifiedAt,    () => null)
+      await update($, lastRequestAt,   () => null)
+      await update($, notifiedAt,      () => null)
+      await update($, keepWarmEnabled, () => false)
     }
     return next(e)
+  })
+
+  on('command.run', { command: 'keepwarm' }, async ($) => {
+    const isOn = !(await read($, keepWarmEnabled))
+    await update($, keepWarmEnabled, () => isOn)
+    $.ui.status(isOn ? '🔥 keepwarm' : '')
+    return {
+      text: isOn
+        ? '🔥 Keep-warm enabled for this session. Will send · before the cache expires to reset the clock. Run /keepwarm again to turn off.'
+        : 'Keep-warm off.',
+    }
   })
 
   on('turn.step', async function* ($, e, next) {
@@ -159,11 +177,24 @@ async function onWarn($: EngineInterface, since: number, now: number, ttlMs: num
     return
   }
   await update($, notifiedAt, () => now)
-  $.ui.toast(`⚠ Cache expires in ${warnMinutes}m — send a turn to stay warm`)
-  await $.process.run([
-    'osascript', '-e',
-    `display notification "Cache expires in ${warnMinutes} minutes — send a turn to refresh" with title "Claude Code" subtitle "Prompt cache expiring soon"`,
-  ]).catch(() => {})
+
+  const isKeepWarm = await read($, keepWarmEnabled)
+
+  if (isKeepWarm) {
+    $.ui.toast('🔥 Cache expiring — sending · to keep it warm')
+    await $.process.run([
+      'osascript', '-e',
+      'display notification "Sending · to reset the cache clock" with title "Claude Code" subtitle "Cache Keepwarm"',
+    ]).catch(() => {})
+    $.prompt.submit({ text: '·' }).catch(() => {})
+  } else {
+    $.ui.toast(`⚠ Cache expires in ${warnMinutes}m — send a turn to stay warm`)
+    await $.process.run([
+      'osascript', '-e',
+      `display notification "Cache expires in ${warnMinutes} minutes — send a turn to refresh" with title "Claude Code" subtitle "Prompt cache expiring soon"`,
+    ]).catch(() => {})
+  }
+
   arm($, since, now, ttlMs)
 }
 

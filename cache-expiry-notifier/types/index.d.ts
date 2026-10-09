@@ -6,6 +6,7 @@ declare module 'claude-code' {
       lastRequestAt: number | null
       detectedTtl: CacheTtl | null
       notifiedAt: number | null
+      keepWarmEnabled: boolean
     }
   }
 }
